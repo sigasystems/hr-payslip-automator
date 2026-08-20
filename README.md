@@ -4,20 +4,27 @@ A modern Python desktop application for automated employee payslip distribution 
 
 ## Features
 
-- **Dashboard**: Overview of processing stats and recent activity.
-- **Automated Processing**: Upload a combined PDF, split it, extract details, match employees, and send emails automatically.
-- **Employee Management**: CRUD operations and Excel import.
-- **Detailed Logs**: Track every email sent, failure, or conflict.
-- **Secure Settings**: Configure SMTP with support for TLS/SSL.
-- **Modern UI**: Polished dark theme using CustomTkinter.
+- **Dashboard**: Overview of processing stats and real-time activity charts.
+- **Automated Processing**: Upload a combined PDF, split it, extract details via OCR / text parsing, match employees, and dispatch payslips.
+- **Employee Management**: Add, edit, single delete, bulk multi-select delete, and Excel bulk import.
+- **Multi-Provider Email Dispatch**:
+  - **SMTP**: Standard SMTP with TLS/SSL encryption.
+  - **Microsoft 365 OAuth 2.0**: Secure Entra ID device flow authentication with Windows DPAPI encryption.
+  - **Resend API**: Cloud transactional email service integration.
+- **Detailed Logs**: Track every email sent, failure, or conflict with searchable filters.
+- **CI/CD Automated Releases**: Automated PyInstaller bundling and Inno Setup Windows installer creation via GitHub Actions.
+- **Modern UI**: Polished, responsive dark theme using CustomTkinter.
 
 ## Tech Stack
 
-- Python 3.12+
-- CustomTkinter (UI)
-- PyMuPDF (PDF Processing)
+- Python 3.11+
+- CustomTkinter (Modern Desktop UI)
+- PyMuPDF (PDF Processing & Splitting)
+- RapidOCR & ONNXRuntime (Fallback OCR extraction)
+- MSAL & Cryptography (Microsoft 365 OAuth & Windows DPAPI token security)
+- Resend Python SDK
 - SQLite (Local Database)
-- pandas (Excel Import)
+- pandas & openpyxl (Excel Import)
 
 ## Setup
 
@@ -34,17 +41,19 @@ A modern Python desktop application for automated employee payslip distribution 
 
 3. Run the application:
    ```bash
-   .\venv\Scripts\python app/main.py
+   python app/main.py
    ```
 
-## Packaging (Windows .exe)
+## Packaging & Windows Installer
 
-To generate a standalone executable, use PyInstaller:
+To build the standalone application and Inno Setup installer locally:
 
-```bash
-pip install pyinstaller
-pyinstaller --noconsole --onefile --add-data "app/database;app/database" --add-data "app/assets;app/assets" app/main.py
+```powershell
+.\build.ps1
 ```
+
+- Standalone executable output: `dist\HRPayslipAutomator\HRPayslipAutomator.exe`
+- Windows setup installer: `dist_installer\HRPayslipAutomator_Setup_v1.0.0.exe`
 
 ## PDF Format Requirements
 

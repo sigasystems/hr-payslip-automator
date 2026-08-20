@@ -1,0 +1,10 @@
+customtkinter
+pymupdf
+pandas
+openpyxl
+pillow
+matplotlib
+resend
+msal
+cryptography
+rapidocr_onnxruntime

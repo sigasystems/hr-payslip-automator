@@ -1,0 +1,81 @@
+name: Build and Release Windows App
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Windows Application & Installer
+    runs-on: windows-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --no-progress
+
+      - name: Build PyInstaller Binary
+        run: |
+          pyinstaller --noconfirm HRPayslipAutomator.spec
+
+      - name: Compile Inno Setup Installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Archive PyInstaller Standalone Folder
+        run: |
+          Compress-Archive -Path "dist\HRPayslipAutomator\*" -DestinationPath "dist\HRPayslipAutomator_portable.zip" -Force
+
+      # 1. Store build outputs as GitHub Artifacts (accessible on every build/PR)
+      - name: Upload Windows Setup Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HRPayslipAutomator-Setup-Installer
+          path: dist_installer/*.exe
+          retention-days: 30
+
+      - name: Upload Portable Zip Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HRPayslipAutomator-Portable-Zip
+          path: dist/HRPayslipAutomator_portable.zip
+          retention-days: 30
+
+      # 2. Automatically create GitHub Release on Version Tags (e.g. v1.0.0)
+      - name: Create GitHub Release (On Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist_installer/*.exe
+            dist/HRPayslipAutomator_portable.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false

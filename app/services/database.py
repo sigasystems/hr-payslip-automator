@@ -57,9 +57,36 @@ class DatabaseService:
                     status TEXT, -- SENT, FAILED, CONFLICT, UNMATCHED
                     error_message TEXT,
                     pdf_path TEXT,
+                    period TEXT,
                     sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+
+            # Extracted Payslips persistence table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS extracted_payslips (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    period TEXT NOT NULL,
+                    page_number INTEGER,
+                    pdf_path TEXT,
+                    extracted_name TEXT,
+                    extracted_code TEXT,
+                    extracted_pan TEXT,
+                    extracted_uan TEXT,
+                    employee_id TEXT,
+                    employee_name TEXT,
+                    email TEXT,
+                    match_status TEXT,
+                    send_status TEXT DEFAULT 'READY',
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Check for new columns if table existed (simple migration)
+            try:
+                cursor.execute("ALTER TABLE email_logs ADD COLUMN period TEXT")
+            except sqlite3.OperationalError: pass
             
             # Settings table
             cursor.execute('''
@@ -91,6 +118,9 @@ class DatabaseService:
             except sqlite3.OperationalError: pass # Already exists
             try:
                 cursor.execute("ALTER TABLE settings ADD COLUMN ms_tenant_id TEXT")
+            except sqlite3.OperationalError: pass # Already exists
+            try:
+                cursor.execute("ALTER TABLE settings ADD COLUMN output_folder TEXT")
             except sqlite3.OperationalError: pass # Already exists
 
             # OAuth tokens table for Microsoft / other OAuth providers
@@ -159,20 +189,107 @@ class DatabaseService:
             conn.commit()
 
     # Logs
-    def add_log(self, emp_id, ext_name, ext_pan, ext_uan, status, error="", pdf_path=""):
+    def add_log(self, emp_id, ext_name, ext_pan, ext_uan, status, error="", pdf_path="", period=""):
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO email_logs (employee_id, extracted_name, extracted_pan, extracted_uan, status, error_message, pdf_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (emp_id, ext_name, ext_pan, ext_uan, status, error, pdf_path))
+                INSERT INTO email_logs (employee_id, extracted_name, extracted_pan, extracted_uan, status, error_message, pdf_path, period)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (emp_id, ext_name, ext_pan, ext_uan, status, error, pdf_path, period))
             conn.commit()
 
-    def get_logs(self):
+    def get_logs(self, period_filter=None):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM email_logs ORDER BY sent_at DESC")
+            if period_filter and period_filter != "All Periods":
+                cursor.execute("SELECT id, employee_id, extracted_name, extracted_pan, extracted_uan, status, error_message, pdf_path, sent_at, period FROM email_logs WHERE period=? ORDER BY sent_at DESC", (period_filter,))
+            else:
+                cursor.execute("SELECT id, employee_id, extracted_name, extracted_pan, extracted_uan, status, error_message, pdf_path, sent_at, period FROM email_logs ORDER BY sent_at DESC")
             return cursor.fetchall()
+
+    def get_distinct_log_periods(self):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT period FROM email_logs WHERE period IS NOT NULL AND period != '' ORDER BY id DESC")
+            rows = cursor.fetchall()
+            return [r[0] for r in rows if r[0]]
+
+    # Extracted Payslips Persistence
+    def save_extracted_payslips_batch(self, period, records):
+        """Saves or updates a list of extracted record dicts for a specific period."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for rec in records:
+                cursor.execute('''
+                    INSERT INTO extracted_payslips (
+                        period, page_number, pdf_path, extracted_name, extracted_code,
+                        extracted_pan, extracted_uan, employee_id, employee_name, email,
+                        match_status, send_status, error_message
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    period,
+                    rec.get("page_number", rec.get("index", 1)),
+                    rec.get("file_path", rec.get("pdf_path", "")),
+                    rec.get("ext_name", rec.get("extracted_name", "")),
+                    rec.get("ext_code", rec.get("extracted_code", "")),
+                    rec.get("ext_pan", rec.get("extracted_pan", "")),
+                    rec.get("ext_uan", rec.get("extracted_uan", "")),
+                    rec.get("emp_id", rec.get("employee_id", "")),
+                    rec.get("emp_name", rec.get("employee_name", "")),
+                    rec.get("email", ""),
+                    rec.get("match_status", "UNMATCHED"),
+                    rec.get("send_status", "READY"),
+                    rec.get("error_msg", rec.get("error_message", ""))
+                ))
+            conn.commit()
+
+    def get_extracted_payslips(self, period):
+        """Loads all saved extracted payslips for a given period."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, period, page_number, pdf_path, extracted_name, extracted_code,
+                       extracted_pan, extracted_uan, employee_id, employee_name, email,
+                       match_status, send_status, error_message, created_at
+                FROM extracted_payslips
+                WHERE period=?
+                ORDER BY page_number ASC
+            ''', (period,))
+            return cursor.fetchall()
+
+    def update_extracted_payslip(self, id, employee_id, employee_name, email, match_status, send_status, pdf_path=None, error_message=""):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if pdf_path:
+                cursor.execute('''
+                    UPDATE extracted_payslips
+                    SET employee_id=?, employee_name=?, email=?, match_status=?, send_status=?, pdf_path=?, error_message=?
+                    WHERE id=?
+                ''', (employee_id, employee_name, email, match_status, send_status, pdf_path, error_message, id))
+            else:
+                cursor.execute('''
+                    UPDATE extracted_payslips
+                    SET employee_id=?, employee_name=?, email=?, match_status=?, send_status=?, error_message=?
+                    WHERE id=?
+                ''', (employee_id, employee_name, email, match_status, send_status, error_message, id))
+            conn.commit()
+
+    def delete_extracted_payslips_for_period(self, period):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM extracted_payslips WHERE period=?", (period,))
+            conn.commit()
+
+    def cleanup_old_data(self, months=6):
+        """Automatically clears extracted payslips and logs older than X months."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"DELETE FROM extracted_payslips WHERE created_at < datetime('now', '-{months} months')")
+                cursor.execute(f"DELETE FROM email_logs WHERE sent_at < datetime('now', '-{months} months')")
+                conn.commit()
+        except Exception:
+            pass
 
     # Settings
     def get_settings(self):
@@ -181,16 +298,16 @@ class DatabaseService:
             cursor.execute("SELECT * FROM settings LIMIT 1")
             return cursor.fetchone()
 
-    def update_settings(self, host, port, email, password, tls, provider='smtp', resend_key='', resend_from='', ms_client_id='', ms_tenant_id=''):
+    def update_settings(self, host, port, email, password, tls, provider='smtp', resend_key='', resend_from='', ms_client_id='', ms_tenant_id='', output_folder=''):
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE settings 
                 SET smtp_host=?, smtp_port=?, sender_email=?, sender_password=?, use_tls=?, 
                     email_provider=?, resend_api_key=?, resend_from_email=?,
-                    ms_client_id=?, ms_tenant_id=?
+                    ms_client_id=?, ms_tenant_id=?, output_folder=?
                 WHERE id=1
-            ''', (host, port, email, password, tls, provider, resend_key, resend_from, ms_client_id, ms_tenant_id))
+            ''', (host, port, email, password, tls, provider, resend_key, resend_from, ms_client_id, ms_tenant_id, output_folder))
             conn.commit()
 
     # OAuth Token Management

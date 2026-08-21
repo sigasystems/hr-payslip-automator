@@ -33,26 +33,44 @@ class EmailSender:
         # Microsoft Auth Service
         self.ms_auth = MicrosoftAuthService(db_service) if db_service else None
 
-    def send_payslip(self, receiver_email, employee_name, month, pdf_path):
-        if self.provider == 'resend':
-            return self._send_via_resend(receiver_email, employee_name, month, pdf_path)
-        elif self.provider == 'microsoft':
-            return self._send_via_microsoft(receiver_email, employee_name, month, pdf_path)
-        else:
-            return self._send_via_smtp(receiver_email, employee_name, month, pdf_path)
+    def _format_content(self, template, employee_name, month, emp_id=""):
+        if not template:
+            return ""
+        return template.replace("{employee_name}", employee_name or "")\
+                       .replace("{name}", employee_name or "")\
+                       .replace("{month_year}", month or "")\
+                       .replace("{month}", month or "")\
+                       .replace("{employee_id}", emp_id or "")\
+                       .replace("{emp_id}", emp_id or "")
 
-    def _send_via_resend(self, receiver_email, employee_name, month, pdf_path):
+    def send_payslip(self, receiver_email, employee_name, month, pdf_path, custom_subject=None, custom_body=None, emp_id=""):
+        if self.provider == 'resend':
+            return self._send_via_resend(receiver_email, employee_name, month, pdf_path, custom_subject, custom_body, emp_id)
+        elif self.provider == 'microsoft':
+            return self._send_via_microsoft(receiver_email, employee_name, month, pdf_path, custom_subject, custom_body, emp_id)
+        else:
+            return self._send_via_smtp(receiver_email, employee_name, month, pdf_path, custom_subject, custom_body, emp_id)
+
+    def _send_via_resend(self, receiver_email, employee_name, month, pdf_path, custom_subject=None, custom_body=None, emp_id=""):
         try:
             with open(pdf_path, "rb") as f:
                 pdf_content = f.read()
 
+            subject = self._format_content(custom_subject, employee_name, month, emp_id) if custom_subject else f"Salary Slip - {month}"
+            
+            if custom_body:
+                formatted_body = self._format_content(custom_body, employee_name, month, emp_id)
+                html_body = f"<p>{formatted_body.replace(chr(10), '<br>')}</p>"
+            else:
+                html_body = f"""<p>Hi {employee_name},</p>
+<p>Please find attached your salary slip for {month}.</p>
+<p>Regards,<br>HR Team</p>"""
+
             params = {
                 "from": self.resend_from_email or "onboarding@resend.dev",
                 "to": receiver_email,
-                "subject": f"Salary Slip - {month}",
-                "html": f"""<p>Hi {employee_name},</p>
-<p>Please find attached your salary slip for {month}.</p>
-<p>Regards,<br>HR Team</p>""",
+                "subject": subject,
+                "html": html_body,
                 "attachments": [
                     {
                         "filename": os.path.basename(pdf_path),
@@ -66,7 +84,7 @@ class EmailSender:
         except Exception as e:
             return False, f"Resend Error: {str(e)}"
 
-    def _send_via_microsoft(self, receiver_email, employee_name, month, pdf_path):
+    def _send_via_microsoft(self, receiver_email, employee_name, month, pdf_path, custom_subject=None, custom_body=None, emp_id=""):
         if not self.ms_auth:
             return False, "Microsoft Auth Service is not initialized."
 
@@ -75,17 +93,18 @@ class EmailSender:
             return False, f"Microsoft OAuth Error: {err}"
 
         try:
-            msg = MIMEMultipart()
-            msg['From'] = sender_email
-            msg['To'] = receiver_email
-            msg['Subject'] = f"Salary Slip - {month}"
-
-            body = f"""Hi {employee_name},
+            subject = self._format_content(custom_subject, employee_name, month, emp_id) if custom_subject else f"Salary Slip - {month}"
+            body = self._format_content(custom_body, employee_name, month, emp_id) if custom_body else f"""Hi {employee_name},
 
 Please find attached your salary slip for {month}.
 
 Regards,
 HR Team"""
+
+            msg = MIMEMultipart()
+            msg['From'] = sender_email
+            msg['To'] = receiver_email
+            msg['Subject'] = subject
             msg.attach(MIMEText(body, 'plain'))
 
             # Attach PDF
@@ -113,19 +132,20 @@ HR Team"""
         except Exception as e:
             return False, f"Microsoft 365 SMTP Error: {str(e)}"
 
-    def _send_via_smtp(self, receiver_email, employee_name, month, pdf_path):
+    def _send_via_smtp(self, receiver_email, employee_name, month, pdf_path, custom_subject=None, custom_body=None, emp_id=""):
         try:
-            msg = MIMEMultipart()
-            msg['From'] = self.sender_email
-            msg['To'] = receiver_email
-            msg['Subject'] = f"Salary Slip - {month}"
-
-            body = f"""Hi {employee_name},
+            subject = self._format_content(custom_subject, employee_name, month, emp_id) if custom_subject else f"Salary Slip - {month}"
+            body = self._format_content(custom_body, employee_name, month, emp_id) if custom_body else f"""Hi {employee_name},
 
 Please find attached your salary slip for {month}.
 
 Regards,
 HR Team"""
+
+            msg = MIMEMultipart()
+            msg['From'] = self.sender_email
+            msg['To'] = receiver_email
+            msg['Subject'] = subject
             msg.attach(MIMEText(body, 'plain'))
 
             # Attach PDF

@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 import threading
 from services.email_sender import EmailSender
 from services.ms_auth_service import MicrosoftAuthService
@@ -167,6 +167,25 @@ class SettingsScreen(ctk.CTkFrame):
             entry.pack(side="left", padx=10)
             self.entries[key] = entry
 
+        # -----------------------------
+        # 4. Custom Storage / Output Folder Frame
+        # -----------------------------
+        storage_frame = ctk.CTkFrame(self)
+        storage_frame.pack(fill="x", pady=10)
+        
+        storage_row = ctk.CTkFrame(storage_frame, fg_color="transparent")
+        storage_row.pack(fill="x", padx=20, pady=10)
+        
+        ctk.CTkLabel(storage_row, text="Output Directory:", width=150, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        
+        saved_folder = settings[11] if len(settings) > 11 and settings[11] else ""
+        self.output_folder_var = ctk.StringVar(value=saved_folder)
+        
+        self.output_folder_entry = ctk.CTkEntry(storage_row, textvariable=self.output_folder_var, width=340, placeholder_text="Default: Documents/Payslips or OneDrive/Documents/Payslips")
+        self.output_folder_entry.pack(side="left", padx=10)
+        
+        ctk.CTkButton(storage_row, text="Browse Folder", width=110, command=self._browse_output_folder).pack(side="left", padx=5)
+
         # Show/Hide frames initially
         self._on_provider_change(self.provider_var.get())
 
@@ -276,6 +295,11 @@ class SettingsScreen(ctk.CTkFrame):
             else:
                 messagebox.showerror("Error", msg)
 
+    def _browse_output_folder(self):
+        folder = filedialog.askdirectory(title="Select Output Folder for Payslips")
+        if folder:
+            self.output_folder_var.set(folder)
+
     def _save_settings(self, silent=False):
         try:
             provider = self.provider_var.get()
@@ -291,6 +315,7 @@ class SettingsScreen(ctk.CTkFrame):
             default_resend_from = curr[8] if curr and len(curr) > 8 else ''
             default_cid = curr[9] if curr and len(curr) > 9 else ''
             default_tid = curr[10] if curr and len(curr) > 10 else ''
+            default_output = curr[11] if curr and len(curr) > 11 else ''
 
             host = self.entries.get('host').get() if self.entries.get('host') else default_host
             port_val = self.entries.get('port').get() if self.entries.get('port') else str(default_port)
@@ -304,6 +329,7 @@ class SettingsScreen(ctk.CTkFrame):
 
             ms_client_id = self.entries.get('ms_client_id').get().strip() if self.entries.get('ms_client_id') else default_cid
             ms_tenant_id = self.entries.get('ms_tenant_id').get().strip() if self.entries.get('ms_tenant_id') else default_tid
+            output_folder = self.output_folder_var.get().strip()
 
             # If provider is Microsoft 365, ensure sender_email is populated from OAuth status
             if provider == "microsoft":
@@ -314,7 +340,7 @@ class SettingsScreen(ctk.CTkFrame):
                 port = 587
                 password = ""
             
-            self.db.update_settings(host, port, email, password, tls, provider, resend_key, resend_from, ms_client_id, ms_tenant_id)
+            self.db.update_settings(host, port, email, password, tls, provider, resend_key, resend_from, ms_client_id, ms_tenant_id, output_folder)
             self.ms_auth = MicrosoftAuthService(self.db)
             if not silent:
                 messagebox.showinfo("Success", "Settings saved successfully")

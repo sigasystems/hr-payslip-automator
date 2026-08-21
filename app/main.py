@@ -1,4 +1,5 @@
 import customtkinter as ctk
+from tkinter import messagebox
 from ui.dashboard import DashboardScreen
 from ui.upload_screen import UploadScreen
 from ui.employees_screen import EmployeesScreen
@@ -17,8 +18,9 @@ class App(ctk.CTk):
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
 
-        # Initialize Services
+        # Initialize Services & Auto-cleanup records older than 6 months
         self.db = DatabaseService()
+        self.db.cleanup_old_data(months=6)
 
         # Layout
         self.grid_columnconfigure(1, weight=1)
@@ -32,11 +34,11 @@ class App(ctk.CTk):
         self.logo_label.pack(pady=20, padx=20)
 
         self.nav_buttons = {}
-        self.create_nav_button("Dashboard", self.show_dashboard)
-        self.create_nav_button("Upload Payslip", self.show_upload)
-        self.create_nav_button("Employees", self.show_employees)
-        self.create_nav_button("Logs", self.show_logs)
-        self.create_nav_button("Settings", self.show_settings)
+        self.create_nav_button("Dashboard", lambda: self._navigate_to(self.show_dashboard))
+        self.create_nav_button("Upload Payslip", lambda: self._navigate_to(self.show_upload))
+        self.create_nav_button("Employees", lambda: self._navigate_to(self.show_employees))
+        self.create_nav_button("Logs", lambda: self._navigate_to(self.show_logs))
+        self.create_nav_button("Settings", lambda: self._navigate_to(self.show_settings))
 
         # Main Content Area
         self.content_frame = ctk.CTkFrame(self, corner_radius=15, fg_color="transparent")
@@ -49,6 +51,22 @@ class App(ctk.CTk):
         btn = ctk.CTkButton(self.sidebar_frame, text=text, command=command, corner_radius=8, height=40, anchor="w", fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"))
         btn.pack(pady=5, padx=20, fill="x")
         self.nav_buttons[text] = btn
+
+    def _navigate_to(self, target_show_fn):
+        if self.current_screen and getattr(self.current_screen, "is_processing", False):
+            msg = (
+                "A job (Extraction / Email Sending) is currently in progress.\n\n"
+                "Navigating away will abort the running task.\n\n"
+                "Do you want to stop the job and navigate away?"
+            )
+            if not messagebox.askyesno("Confirm Navigation", msg):
+                return
+            
+            # Stop current running job
+            if hasattr(self.current_screen, "stop_requested"):
+                self.current_screen.stop_requested = True
+
+        target_show_fn()
 
     def clear_content(self):
         if self.current_screen:
